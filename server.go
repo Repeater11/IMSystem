@@ -97,7 +97,7 @@ func (server *Server) Handler(conn net.Conn) {
 		select {
 		case <-isLive:
 			// 不做任何处理，表示当前用户活跃
-		case <-time.After(time.Second * 10):
+		case <-time.After(time.Second * 600):
 			// 如果超过10秒没有消息，就自动下线
 			user.SendMsg("你已超时下线")
 			user.Offline()

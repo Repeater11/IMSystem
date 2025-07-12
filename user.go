@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net"
+	"strings"
 )
 
 type User struct {
@@ -43,7 +44,12 @@ func (user *User) Online() {
 
 // 用户的下线业务
 func (user *User) Offline() {
+	// 从 OnlineMap 中删除
 	user.Server.mapLock.Lock()
+	if _, exists := user.Server.OnlineMap[user.Name]; !exists {
+		user.Server.mapLock.Unlock()
+		return // 用户已经下线，直接返回
+	}
 	delete(user.Server.OnlineMap, user.Name)
 	user.Server.mapLock.Unlock()
 
@@ -51,17 +57,27 @@ func (user *User) Offline() {
 	user.Server.Broadcast(user, "已下线")
 
 	// 关闭用户的连接
-	if err := user.Conn.Close(); err != nil {
-		fmt.Println("关闭连接失败: ", err)
-		return
+	if user.Conn != nil {
+		err := user.Conn.Close()
+		if err != nil && !strings.Contains(err.Error(), "use of closed network connection") {
+			fmt.Println("关闭连接失败: ", err)
+		}
+		user.Conn = nil
 	}
 
-	// 关闭用户的 channel
-	close(user.Chan)
+	// 关闭用户的 channel（如果还未关闭）
+	select {
+	case <-user.Chan: // 如果 channel 已关闭，这里会立即返回
+	default:
+		close(user.Chan)
+	}
 }
 
 // 给当前 user 对应的客户端发送消息
 func (user *User) SendMsg(msg string) {
+	if user.Conn == nil {
+		return
+	}
 	user.Conn.Write([]byte(msg + "\n"))
 }
 
@@ -94,6 +110,35 @@ func (user *User) DoMsg(msg string) {
 		user.Server.OnlineMap[newName] = user
 		user.Server.mapLock.Unlock()
 		user.SendMsg("用户名已修改为: " + newName)
+	} else if len(msg) > 4 && msg[:3] == "to|" {
+		// 私聊功能
+		// 消息格式: "to|username|message"
+
+		// 获取目标用户名和消息内容
+		parts := strings.SplitN(msg[3:], "|", 2)
+		if len(parts) < 2 {
+			user.SendMsg("私聊格式错误，请使用: to|username|message")
+			return
+		}
+
+		remoteName := parts[0]
+		if remoteName == "" {
+			user.SendMsg("私聊格式错误，请使用: to|username|message")
+			return
+		}
+
+		remoteUser, ok := user.Server.OnlineMap[remoteName]
+		if !ok {
+			user.SendMsg("用户 " + remoteName + " 不在线或不存在")
+			return
+		}
+
+		content := parts[1]
+		if content == "" {
+			user.SendMsg("私聊内容不能为空")
+			return
+		}
+		remoteUser.SendMsg(user.Name + "对你说: " + content)
 	} else {
 		// 广播消息
 		user.Server.Broadcast(user, msg)
@@ -103,7 +148,18 @@ func (user *User) DoMsg(msg string) {
 // 监听当前 user channel 的方法，一旦有消息，就直接发送给对端客户端
 func (user *User) ListenMessage() {
 	for {
-		msg := <-user.Chan
+		msg, ok := <-user.Chan
+		if !ok {
+			// channel已关闭，退出循环
+			return
+		}
+
+		// 如果连接已关闭，退出循环
+		if user.Conn == nil {
+			return
+		}
+
+		// 发送消息，忽略错误（因为连接可能随时断开）
 		user.Conn.Write([]byte(msg + "\n"))
 	}
 }
