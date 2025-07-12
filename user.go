@@ -64,6 +64,24 @@ func (user *User) DoMsg(msg string) {
 		}
 		user.Server.mapLock.RUnlock()
 		return
+	} else if len(msg) > 7 && msg[:7] == "rename|" {
+		// 修改用户名
+		newName := msg[7:]
+
+		// 检查新用户名是否已存在
+		user.Server.mapLock.Lock()
+		if _, exists := user.Server.OnlineMap[newName]; exists {
+			user.SendMsg("用户名已存在，请重新命名")
+			user.Server.mapLock.Unlock()
+			return
+		}
+
+		// 修改用户名
+		delete(user.Server.OnlineMap, user.Name)
+		user.Name = newName
+		user.Server.OnlineMap[newName] = user
+		user.Server.mapLock.Unlock()
+		user.SendMsg("用户名已修改为: " + newName)
 	} else {
 		// 广播消息
 		user.Server.Broadcast(user, msg)
