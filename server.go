@@ -81,7 +81,7 @@ func (server *Server) Handler(conn net.Conn) {
 			msg := string(buf[:n-1])
 
 			// 处理用户的消息
-			user.SendMsg(msg)
+			user.DoMsg(msg)
 		}
 	}()
 
