@@ -1,6 +1,9 @@
 package main
 
-import "net"
+import (
+	"fmt"
+	"net"
+)
 
 type User struct {
 	Name   string
@@ -46,6 +49,15 @@ func (user *User) Offline() {
 
 	// 广播用户下线消息
 	user.Server.Broadcast(user, "已下线")
+
+	// 关闭用户的连接
+	if err := user.Conn.Close(); err != nil {
+		fmt.Println("关闭连接失败: ", err)
+		return
+	}
+
+	// 关闭用户的 channel
+	close(user.Chan)
 }
 
 // 给当前 user 对应的客户端发送消息
